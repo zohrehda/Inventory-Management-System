@@ -1,58 +1,92 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+## Setup
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
-
-## About Laravel
-
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
-
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
-
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
-
-## Learning Laravel
-
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
-
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
-
+### 2. Install dependencies
 ```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+composer install
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+### 3. Configure environment
 
-## Contributing
+```bash
+cp .env.example .env
+php artisan key:generate
+```
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+Update your database credentials in the `.env` file.
 
-## Code of Conduct
+### 4. Run migrations and seeders
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+```bash
+php artisan migrate --seed
+```
 
-## Security Vulnerabilities
+### 5. Start the application
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+```bash
+php artisan serve
+```
 
-## License
+The application will be available at:
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+`http://127.0.0.1:8000`
+
+
+
+## Architecture
+
+### Multi-tenancy
+
+A lightweight, **single-database, shared-schema** multi-tenancy module for Laravel. Every tenant's data lives in the same tables, and rows are separated by a `tenant_id` column.
+
+#### How it works
+
+1. **Identify:** The `tenant` middleware reads the `X-Tenant` header (configurable via `TENANCY_HEADER`).
+2. **Resolve:** `TenantResolver` looks up the tenant by its `subdomain` value. If the header is missing or no tenant matches, it throws `TenantCouldNotBeIdentifiedException`.
+3. **Initialize:** The `Tenancy` singleton stores the current tenant for the request.
+4. **Isolate:** Models that use the `BelongsToTenant` trait are automatically filtered by `TenantScope` (`WHERE tenant_id = ?`), and `tenant_id` is filled in automatically when records are created.
+5. **Clean up:** In `terminate()`, the middleware calls `Tenancy::end()` so the tenant can't leak between requests in long-lived workers such as Octane.
+
+#### Components
+
+| File | Responsibility |
+|---|---|
+| `Tenancy.php` | Holds the current tenant. Provides `initialize()`, `end()`, `initialized()`, `tenant()`, `id()` and `run()`. |
+| `TenantResolver.php` | Finds the tenant from the request. |
+| `Middleware/InitializeTenancy.php` | Starts and ends tenancy per request (alias: `tenant`). |
+| `Concerns/BelongsToTenant.php` | Trait for tenant-owned models: adds the global scope, auto-assigns `tenant_id` and provides a `tenant()` relation. |
+| `Scopes/TenantScope.php` | Global scope that adds the `tenant_id` filter to queries. |
+| `Models/Tenant.php` | The tenant model (`name`, `subdomain`). |
+| `TenancyServiceProvider.php` | Registers the singletons, config, migrations, translations and the middleware alias. |
+| `Exceptions/` and `lang/` | Error type and messages for tenant identification failures. |
+| `helpers.php` | `tenancy()` and `tenant()` helper functions. |
+| `config/tenancy.php` | Header name and tenant model class. |
+
+
+### Concurrency Test
+
+A feature test that checks the stock system never oversells under heavy parallel load.
+
+#### Scenario
+
+1. Create a tenant, a product and a warehouse.
+2. Record an initial **IN** movement of **50 units**.
+3. Run **100 parallel OUT movements of 1 unit each**. Each runs in its own process via `Concurrency::run()`, re-initialises the tenant and calls `StockMovementService::record()`.
+4. Count how each task ended: `ok`, `insufficient` (an `InsufficientStockException`) or `error`.
+
+#### Expected outcome
+
+| Check | Expected |
+|---|---|
+| Successful OUT movements | 50 |
+| Rejected with `InsufficientStockException` | 50 |
+| Final `StockLevel.quantity` | 0 (never negative) |
+
+#### What it proves
+
+- **No race conditions:** the service must lock or atomically update the stock row, so two processes can't both consume the last unit.
+- **Tenant context works across processes:** each worker resolves the tenant via `tenancy()->run()`.
+- **Stock never goes below zero.**
+
+#### Requirements
+
+- A DB engine with real row locking (MySQL).
