@@ -17,7 +17,7 @@ jobs:
       - name: Install dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
       - name: Prepare environment
-      - run : |
+        run : |
           cp .env.example .env
           php artisan key:generate
       - name: Run Tests
