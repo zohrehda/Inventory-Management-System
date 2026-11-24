@@ -50,7 +50,7 @@ class StockMovementConcurrencyTest extends TestCase
         $tasks = [];
 
         for ($i = 0; $i < 100; $i++) {
-            $tasks[] = function () use ($tenantId, $productId, $warehouseId) {
+            $tasks[] = static function () use ($tenantId, $productId, $warehouseId) {
                 try {
                     $tenant = Tenant::findOrFail($tenantId);
                     tenancy()->run($tenant, function () use ($productId, $warehouseId) {
