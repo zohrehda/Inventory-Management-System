@@ -1,9 +1,7 @@
 <?php
 
-use App\Providers\AppServiceProvider;
-use App\Tenancy\TenancyServiceProvider;
-
 return [
-    AppServiceProvider::class,
-    TenancyServiceProvider::class
+    App\Providers\AppServiceProvider::class,
+    App\Providers\TelescopeServiceProvider::class,
+    App\Tenancy\TenancyServiceProvider::class,
 ];
