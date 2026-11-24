@@ -9,6 +9,22 @@ on:
 jobs:
   tests:
     runs-on : ubuntu-latest
+
+
+    services:                    # start helper containers next to the job
+      mysql:                     # a name you choose (becomes the container's hostname)
+      image: mysql:8.0         # the Docker image to run (MySQL version 8.0)
+      env:                     # environment variables passed INTO the container
+        MYSQL_ROOT_PASSWORD: password   # sets the root user's password
+        MYSQL_DATABASE: testing         # auto-creates an empty database named "testing"
+      ports:
+       - 3306:3306            # host_port:container_port
+      options: >-              # extra flags for `docker create` (the health check lives here)
+        --health-cmd="mysqladmin ping"
+        --health-interval=10s
+        --health-timeout=5s
+        --health-retries=3
+
     steps:
       - name:  Checkout code
         uses: actions/checkout@v4
@@ -21,7 +37,15 @@ jobs:
           cp .env.example .env
           php artisan key:generate
       - name: Run Tests
+        env:
+          DB_CONNECTION: mysql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_DATABASE: testing
+          DB_USERNAME: root
+          DB_PASSWORD: password
         run: php artisan test
+
 
 
 
